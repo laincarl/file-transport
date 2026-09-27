@@ -96,12 +96,12 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build macos --release
-      - name: 压缩应用
-        run: ditto -c -k --sequesterRsrc --keepParent 'build/macos/Build/Products/Release/局域快传.app' '局域快传-macos.zip'
+      - name: 生成 macOS 磁盘映像
+        run: hdiutil create -volname '局域快传' -srcfolder 'build/macos/Build/Products/Release/局域快传.app' -ov -format UDZO '局域快传-macos.dmg'
       - uses: actions/upload-artifact@v4
         with:
           name: 局域快传-macos
-          path: 局域快传-macos.zip
+          path: 局域快传-macos.dmg
           retention-days: 14
 
   release:

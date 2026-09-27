@@ -58,7 +58,7 @@ flutter run -d macos
 - `dist/局域快传-windows-x64.zip`
 - `dist/局域快传-android.apk`
 
-GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个安装包。
+GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。macOS 使用 DMG 磁盘映像，避免 Actions Artifact 出现双层 ZIP。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个平台的安装包。
 
 Windows 流水线同时生成免安装 ZIP 和带卸载入口的 EXE 安装程序。安装程序会添加 UDP `45678` 与 TCP `45679` 的 Windows 防火墙入站规则，卸载时自动移除。
 
