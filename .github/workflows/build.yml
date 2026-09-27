@@ -45,7 +45,18 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter build apk --release
+      - name: 恢复 Android 签名密钥
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lanlink-upload.jks"
+      - name: 构建已签名 APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/lanlink-upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: flutter build apk --release --build-number=${{ github.run_number }}
       - name: 整理安装包
         run: cp build/app/outputs/flutter-apk/app-release.apk '局域快传-android.apk'
       - uses: actions/upload-artifact@v4

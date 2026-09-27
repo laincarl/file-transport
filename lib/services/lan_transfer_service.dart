@@ -49,11 +49,17 @@ class LanTransferService extends ChangeNotifier {
       _preferences = await SharedPreferences.getInstance();
       deviceId = _preferences!.getString('device_id') ?? _newId();
       await _preferences!.setString('device_id', deviceId);
-      deviceName =
-          _preferences!.getString('device_name') ??
-          (Platform.localHostname.trim().isEmpty
-              ? '我的设备'
-              : Platform.localHostname);
+      final savedDeviceName = _preferences!.getString('device_name')?.trim();
+      final shouldGenerateDeviceName =
+          savedDeviceName == null ||
+          savedDeviceName.isEmpty ||
+          savedDeviceName.toLowerCase() == 'localhost';
+      deviceName = shouldGenerateDeviceName
+          ? await _defaultDeviceName()
+          : savedDeviceName;
+      if (shouldGenerateDeviceName) {
+        await _preferences!.setString('device_name', deviceName);
+      }
       final savedDestination = _preferences!.getString('destination');
       final defaultPath = await _defaultDownloadPath();
       defaultDestination = _isLegacyAndroidDestination(savedDestination)
@@ -117,6 +123,22 @@ class LanTransferService extends ChangeNotifier {
     } catch (_) {}
     final documents = await getApplicationDocumentsDirectory();
     return '${documents.path}${Platform.pathSeparator}局域快传';
+  }
+
+  Future<String> _defaultDeviceName() async {
+    if (Platform.isAndroid) {
+      try {
+        final androidName = await AndroidPlatformService.getDeviceName();
+        if (androidName != null && androidName.trim().isNotEmpty) {
+          return androidName.trim();
+        }
+      } catch (_) {}
+      return 'Android 设备';
+    }
+    final hostname = Platform.localHostname.trim();
+    return hostname.isEmpty || hostname.toLowerCase() == 'localhost'
+        ? '我的设备'
+        : hostname;
   }
 
   bool _isLegacyAndroidDestination(String? path) {

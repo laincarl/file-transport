@@ -60,6 +60,8 @@ flutter run -d macos
 
 GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。macOS 使用 DMG 磁盘映像，避免 Actions Artifact 出现双层 ZIP。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个平台的安装包。
 
+Android 流水线使用保存在 GitHub Secrets 中的固定 Release 密钥签名，并以 Actions 运行编号生成递增的 `versionCode`，因此后续流水线 APK 可以直接覆盖升级。首次从旧的 Debug 签名版切换到 Release 签名版时，需要先卸载旧版本。请勿替换或遗失原始签名密钥，否则无法继续覆盖升级已有安装。
+
 Windows 流水线同时生成免安装 ZIP 和带卸载入口的 EXE 安装程序。安装程序会添加 UDP `45678` 与 TCP `45679` 的 Windows 防火墙入站规则，卸载时自动移除。
 
 ## 已验证
@@ -68,4 +70,5 @@ Windows 流水线同时生成免安装 ZIP 和带卸载入口的 EXE 安装程�
 - 中文文件名和中文文本内容可正常传输
 - 双向接收文件与源文件 SHA-256 一致
 - Android 公共下载目录、APK 安装器与文件管理器跳转均已在 API 35 模拟器验证
+- Android 固定签名 APK 的连续版本覆盖安装已在 API 35 模拟器验证
 - Android 模拟器不支持局域网广播时，可通过 `10.0.2.2` 手动连接宿主机

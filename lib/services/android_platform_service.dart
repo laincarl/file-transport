@@ -10,6 +10,11 @@ class AndroidPlatformService {
     return _channel.invokeMethod<String>('getPublicDownloadsPath');
   }
 
+  static Future<String?> getDeviceName() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<String>('getDeviceName');
+  }
+
   static Future<bool> hasStorageAccess() async {
     if (!Platform.isAndroid) return true;
     return await _channel.invokeMethod<bool>('hasStorageAccess') ?? false;

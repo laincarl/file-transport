@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getDeviceName" -> result.success(getDeviceName())
                     "getPublicDownloadsPath" -> {
                         val downloads = Environment.getExternalStoragePublicDirectory(
                             Environment.DIRECTORY_DOWNLOADS,
@@ -54,6 +55,27 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun getDeviceName(): String {
+        val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.MODEL.contains("google_sdk", ignoreCase = true) ||
+            Build.MODEL.contains("sdk_gphone", ignoreCase = true) ||
+            Build.MODEL.contains("Emulator", ignoreCase = true) ||
+            Build.MODEL.contains("Android SDK built for", ignoreCase = true)
+        if (isEmulator) return "Android 模拟器"
+
+        val manufacturer = Build.MANUFACTURER.trim()
+        val model = Build.MODEL.trim()
+        if (model.isEmpty()) return "Android 设备"
+        return if (
+            manufacturer.isEmpty() || model.startsWith(manufacturer, ignoreCase = true)
+        ) {
+            model
+        } else {
+            "$manufacturer $model"
+        }
     }
 
     private fun acquireMulticastLock() {

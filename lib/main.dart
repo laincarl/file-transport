@@ -355,6 +355,11 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
           title: const Text('设置'),
           content: SizedBox(
             width: 440,
@@ -460,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          final wide = constraints.maxWidth >= 920;
+                          final wide = constraints.maxWidth >= 760;
                           final devices = _DevicesPanel(
                             peers: service.peers,
                             selected: selectedPeer,
@@ -507,10 +512,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ],
                                   )
                                 : ListView(
+                                    key: ValueKey(
+                                      constraints.maxWidth >
+                                              constraints.maxHeight
+                                          ? 'mobile-landscape'
+                                          : 'mobile-portrait',
+                                    ),
                                     children: [
-                                      SizedBox(height: 360, child: devices),
+                                      SizedBox(height: 310, child: devices),
                                       const SizedBox(height: 18),
-                                      SizedBox(height: 520, child: right),
+                                      SizedBox(height: 470, child: right),
                                     ],
                                   ),
                           );
@@ -588,75 +599,104 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 78,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE8EAF0))),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(13)),
-            clipBehavior: Clip.antiAlias,
-            child: Image.asset('assets/icon/app_icon.png', fit: BoxFit.cover),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 600;
+        return Container(
+          height: 78,
+          padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 28),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: Color(0xFFE8EAF0))),
           ),
-          const SizedBox(width: 13),
-          const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Text(
-                '局域快传',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 19),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/icon/app_icon.png',
+                  fit: BoxFit.cover,
+                ),
               ),
-              Text(
-                '文件只在局域网内传输',
-                style: TextStyle(color: Color(0xFF7B8190), fontSize: 12),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '局域快传',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 19,
+                      ),
+                    ),
+                    if (!compact)
+                      const Text(
+                        '文件只在局域网内传输',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Color(0xFF7B8190),
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 9 : 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF3),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 7,
+                      height: 7,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Color(0xFF12B76A),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      compact
+                          ? '$peerCount 台在线'
+                          : '$deviceName · $peerCount 台在线',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF027A48),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: onSettings,
+                tooltip: '设置',
+                icon: const Icon(Icons.settings_outlined),
               ),
             ],
           ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(
-              color: const Color(0xFFECFDF3),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 7,
-                  height: 7,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Color(0xFF12B76A),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  '$deviceName · $peerCount 台在线',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF027A48),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onSettings,
-            tooltip: '设置',
-            icon: const Icon(Icons.settings_outlined),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
