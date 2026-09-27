@@ -70,10 +70,17 @@ jobs:
       - name: 压缩发布目录
         shell: pwsh
         run: Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath '局域快传-windows-x64.zip'
+      - name: 安装 Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: 生成 Windows 安装程序
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/windows/lanlink.iss'
       - uses: actions/upload-artifact@v4
         with:
           name: 局域快传-windows-x64
-          path: 局域快传-windows-x64.zip
+          path: |
+            局域快传-windows-x64.zip
+            dist/局域快传-windows-x64-setup.exe
           retention-days: 14
 
   macos:

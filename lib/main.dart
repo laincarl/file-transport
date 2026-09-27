@@ -466,7 +466,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             selected: selectedPeer,
                             onSelected: (peer) =>
                                 setState(() => selectedPeer = peer),
-                            onRefresh: service.advertise,
+                            onRefresh: () =>
+                                service.discoverNow(forceScan: true),
                             onManualConnect: _manualConnect,
                           );
                           final right = Column(

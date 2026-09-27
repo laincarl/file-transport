@@ -10,6 +10,7 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.webkit.MimeTypeMap
+import android.net.wifi.WifiManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -20,6 +21,7 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val channelName = "lanlink/android"
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -37,6 +39,10 @@ class MainActivity : FlutterActivity() {
                         requestStorageAccess()
                         result.success(null)
                     }
+                    "acquireMulticastLock" -> {
+                        acquireMulticastLock()
+                        result.success(null)
+                    }
                     "openFile" -> {
                         val path = call.argument<String>("path")
                         result.success(if (path == null) "failed" else openFile(path))
@@ -48,6 +54,21 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        multicastLock = wifiManager.createMulticastLock("lanlink-discovery").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    override fun onDestroy() {
+        if (multicastLock?.isHeld == true) multicastLock?.release()
+        multicastLock = null
+        super.onDestroy()
     }
 
     private fun hasStorageAccess(): Boolean {

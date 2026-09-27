@@ -36,4 +36,21 @@ void main() {
     expect(task.bytesPerSecond, greaterThan(0));
     expect(task.remainingTime, isNotNull);
   });
+
+  test('发送端使用接收端回传的进度和速度', () {
+    final task = TransferTask(
+      id: 'sync',
+      direction: TransferDirection.send,
+      peerName: '接收端',
+      title: '文件.bin',
+      fileCount: 1,
+      totalBytes: 4096,
+    );
+
+    task.syncFromReceiver(1536, 2048);
+
+    expect(task.transferredBytes, 1536);
+    expect(task.bytesPerSecond, 2048);
+    expect(task.progress, closeTo(0.375, 0.0001));
+  });
 }

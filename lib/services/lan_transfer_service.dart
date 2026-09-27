@@ -25,7 +25,10 @@ class LanTransferService extends ChangeNotifier {
   ServerSocket? _server;
   Timer? _advertiseTimer;
   Timer? _cleanupTimer;
+  Timer? _scanTimer;
   SharedPreferences? _preferences;
+  bool _scanInProgress = false;
+  DateTime? _lastScanAt;
 
   String deviceId = '';
   String deviceName = '正在初始化';
@@ -59,6 +62,7 @@ class LanTransferService extends ChangeNotifier {
       if (defaultDestination != savedDestination) {
         await _preferences!.setString('destination', defaultDestination!);
       }
+      await AndroidPlatformService.acquireMulticastLock();
 
       _server = await ServerSocket.bind(
         InternetAddress.anyIPv4,
@@ -83,7 +87,17 @@ class LanTransferService extends ChangeNotifier {
         const Duration(seconds: 3),
         (_) => _removeExpiredPeers(),
       );
+      _scanTimer = Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => unawaited(discoverNow()),
+      );
       advertise();
+      unawaited(
+        Future<void>.delayed(
+          const Duration(milliseconds: 600),
+          () => discoverNow(forceScan: true),
+        ),
+      );
     } catch (error) {
       startupError = '网络服务启动失败：$error';
     }
@@ -135,20 +149,61 @@ class LanTransferService extends ChangeNotifier {
   }
 
   void advertise() {
+    unawaited(_advertise());
+  }
+
+  Future<void> discoverNow({bool forceScan = false}) async {
+    await _advertise();
+    final now = DateTime.now();
+    if (!forceScan &&
+        _lastScanAt != null &&
+        now.difference(_lastScanAt!) < const Duration(seconds: 8)) {
+      return;
+    }
+    await _scanLocalNetworks();
+  }
+
+  Future<void> _advertise() async {
     final socket = _discoverySocket;
     if (socket == null) return;
+    final destinations = <String>{'255.255.255.255'};
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      for (final interface in interfaces) {
+        for (final address in interface.addresses) {
+          final parts = address.address.split('.');
+          if (parts.length == 4) {
+            destinations.add('${parts[0]}.${parts[1]}.${parts[2]}.255');
+          }
+        }
+      }
+    } catch (_) {}
+    for (final destination in destinations) {
+      _sendDiscovery(socket, InternetAddress(destination), reply: false);
+    }
+  }
+
+  void _sendDiscovery(
+    RawDatagramSocket socket,
+    InternetAddress address, {
+    required bool reply,
+  }) {
     final payload = utf8.encode(
       jsonEncode({
         'type': 'lanlink',
-        'version': 1,
+        'version': 2,
         'id': deviceId,
         'name': deviceName,
         'platform': currentPlatform(),
         'port': transferPort,
+        'reply': reply,
       }),
     );
     try {
-      socket.send(payload, InternetAddress('255.255.255.255'), discoveryPort);
+      socket.send(payload, address, discoveryPort);
     } catch (_) {}
   }
 
@@ -169,13 +224,88 @@ class LanTransferService extends ChangeNotifier {
           port: data['port'] as int? ?? transferPort,
           lastSeen: DateTime.now(),
         );
+        if (data['reply'] != true) {
+          final socket = _discoverySocket;
+          if (socket != null) {
+            _sendDiscovery(socket, datagram.address, reply: true);
+          }
+        }
         notifyListeners();
       } catch (_) {}
     }
   }
 
+  Future<void> _scanLocalNetworks() async {
+    if (_scanInProgress) return;
+    _scanInProgress = true;
+    _lastScanAt = DateTime.now();
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      final ownAddresses = <String>{};
+      final prefixes = <String>{};
+      for (final interface in interfaces) {
+        for (final address in interface.addresses) {
+          ownAddresses.add(address.address);
+          final parts = address.address.split('.');
+          if (parts.length == 4 &&
+              !address.isLoopback &&
+              !address.address.startsWith('169.254.')) {
+            prefixes.add('${parts[0]}.${parts[1]}.${parts[2]}');
+          }
+        }
+      }
+      for (final prefix in prefixes) {
+        final hosts = [
+          for (var last = 1; last < 255; last++) '$prefix.$last',
+        ].where((host) => !ownAddresses.contains(host)).toList();
+        for (var start = 0; start < hosts.length; start += 32) {
+          final end = min(start + 32, hosts.length);
+          await Future.wait(hosts.sublist(start, end).map(_probePeer));
+        }
+      }
+    } catch (_) {
+      // UDP discovery remains available if interface enumeration is restricted.
+    } finally {
+      _scanInProgress = false;
+    }
+  }
+
+  Future<void> _probePeer(String host) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        transferPort,
+        timeout: const Duration(milliseconds: 280),
+      );
+      final reader = _SocketReader(socket);
+      await _writePacket(socket, {'type': 'hello'});
+      final response = await reader.readPacket().timeout(
+        const Duration(milliseconds: 500),
+      );
+      if (response['type'] != 'hello' || response['id'] == deviceId) return;
+      final id = response['id'] as String;
+      _peers[id] = PeerDevice(
+        id: id,
+        name: response['name'] as String? ?? '未知设备',
+        platform: response['platform'] as String? ?? 'unknown',
+        address: InternetAddress(host),
+        port: response['port'] as int? ?? transferPort,
+        lastSeen: DateTime.now(),
+      );
+      notifyListeners();
+    } catch (_) {
+      // A closed or unreachable port simply means this address is not a peer.
+    } finally {
+      socket?.destroy();
+    }
+  }
+
   void _removeExpiredPeers() {
-    final cutoff = DateTime.now().subtract(const Duration(seconds: 8));
+    final cutoff = DateTime.now().subtract(const Duration(seconds: 30));
     final before = _peers.length;
     _peers.removeWhere(
       (id, peer) => !id.startsWith('manual-') && peer.lastSeen.isBefore(cutoff),
@@ -246,6 +376,17 @@ class LanTransferService extends ChangeNotifier {
 
       task.beginTransfer();
       notifyListeners();
+      Object? receiverUpdateError;
+      final receiverUpdatesDone = Completer<void>();
+      unawaited(() async {
+        try {
+          await _readReceiverUpdates(reader, task);
+        } catch (error) {
+          receiverUpdateError = error;
+        } finally {
+          receiverUpdatesDone.complete();
+        }
+      }());
       for (final entry in entries) {
         if (task.status == TransferStatus.cancelled) {
           throw const _TransferCancelled();
@@ -260,19 +401,16 @@ class LanTransferService extends ChangeNotifier {
             throw const _TransferCancelled();
           }
           socket.add(chunk);
-          task.addTransferredBytes(chunk.length);
-          notifyListeners();
         }
         await socket.flush();
       }
       await _writePacket(socket, {'type': 'done'});
       task.status = TransferStatus.finalizing;
       notifyListeners();
-      final acknowledgement = await reader.readPacket();
-      if (acknowledgement['received'] != true) {
-        throw const FormatException('接收方未确认完成');
-      }
+      await receiverUpdatesDone.future.timeout(const Duration(seconds: 30));
+      if (receiverUpdateError != null) throw receiverUpdateError!;
       task.status = TransferStatus.completed;
+      task.syncFromReceiver(task.totalBytes, 0);
     } on _TransferRejected {
       task.status = TransferStatus.cancelled;
       task.error = '对方拒绝了接收请求';
@@ -319,6 +457,16 @@ class LanTransferService extends ChangeNotifier {
     IOSink? currentSink;
     try {
       final packet = await reader.readPacket();
+      if (packet['type'] == 'hello') {
+        await _writePacket(socket, {
+          'type': 'hello',
+          'id': deviceId,
+          'name': deviceName,
+          'platform': currentPlatform(),
+          'port': transferPort,
+        });
+        return;
+      }
       if (packet['type'] != 'offer') throw const FormatException('无效的传输请求');
       final rawFiles = (packet['files'] as List)
           .cast<Map>()
@@ -355,6 +503,13 @@ class LanTransferService extends ChangeNotifier {
       _tasks.insert(0, task);
       _activeSockets[task.id] = socket;
       notifyListeners();
+      _queuePacket(socket, {
+        'type': 'progress',
+        'receivedBytes': 0,
+        'bytesPerSecond': 0,
+      });
+
+      var lastProgressSentAt = DateTime.fromMillisecondsSinceEpoch(0);
 
       for (var index = 0; index < rawFiles.length; index++) {
         final filePacket = await reader.readPacket();
@@ -372,7 +527,18 @@ class LanTransferService extends ChangeNotifier {
         currentSink = temporaryFile.openWrite();
         await reader.pipeBytes(size, currentSink, (received) {
           task!.addTransferredBytes(received);
-          notifyListeners();
+          final now = DateTime.now();
+          if (now.difference(lastProgressSentAt) >=
+                  const Duration(milliseconds: 250) ||
+              task.transferredBytes >= task.totalBytes) {
+            lastProgressSentAt = now;
+            _queuePacket(socket, {
+              'type': 'progress',
+              'receivedBytes': task.transferredBytes,
+              'bytesPerSecond': task.bytesPerSecond,
+            });
+            notifyListeners();
+          }
         });
         await currentSink.close();
         currentSink = null;
@@ -383,11 +549,16 @@ class LanTransferService extends ChangeNotifier {
       final done = await reader.readPacket();
       if (done['type'] != 'done') throw const FormatException('传输未正常结束');
       task.status = TransferStatus.completed;
-      task.bytesPerSecond = 0;
+      task.syncFromReceiver(task.totalBytes, 0);
       notifyListeners();
       // 先让接收端渲染完成状态，再向发送端确认，保证双方状态顺序一致。
       await Future<void>.delayed(const Duration(milliseconds: 80));
-      await _writePacket(socket, {'received': true});
+      await _writePacket(socket, {
+        'type': 'complete',
+        'received': true,
+        'receivedBytes': task.transferredBytes,
+        'bytesPerSecond': 0,
+      });
     } catch (error) {
       if (task != null && task.status != TransferStatus.cancelled) {
         task.status = TransferStatus.failed;
@@ -403,6 +574,22 @@ class LanTransferService extends ChangeNotifier {
       if (task != null) _activeSockets.remove(task.id);
       socket.destroy();
       notifyListeners();
+    }
+  }
+
+  Future<void> _readReceiverUpdates(
+    _SocketReader reader,
+    TransferTask task,
+  ) async {
+    while (true) {
+      final packet = await reader.readPacket();
+      final receivedBytes = packet['receivedBytes'] as int?;
+      final speed = (packet['bytesPerSecond'] as num?)?.toDouble();
+      if (receivedBytes != null) {
+        task.syncFromReceiver(receivedBytes, speed ?? task.bytesPerSecond);
+        notifyListeners();
+      }
+      if (packet['received'] == true || packet['type'] == 'complete') return;
     }
   }
 
@@ -441,10 +628,18 @@ class LanTransferService extends ChangeNotifier {
     await socket.flush();
   }
 
+  static void _queuePacket(Socket socket, Map<String, dynamic> data) {
+    final body = utf8.encode(jsonEncode(data));
+    final header = ByteData(4)..setUint32(0, body.length, Endian.big);
+    socket.add(header.buffer.asUint8List());
+    socket.add(body);
+  }
+
   @override
   void dispose() {
     _advertiseTimer?.cancel();
     _cleanupTimer?.cancel();
+    _scanTimer?.cancel();
     _discoverySocket?.close();
     _server?.close();
     for (final socket in _activeSockets.values) {

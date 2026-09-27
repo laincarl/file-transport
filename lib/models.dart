@@ -127,4 +127,9 @@ class TransferTask {
     _lastSpeedSampleAt = now;
     _lastSpeedSampleBytes = transferredBytes;
   }
+
+  void syncFromReceiver(int bytes, double speed) {
+    transferredBytes = bytes.clamp(0, totalBytes);
+    bytesPerSecond = speed < 0 ? 0 : speed;
+  }
 }

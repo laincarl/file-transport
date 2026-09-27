@@ -20,6 +20,11 @@ class AndroidPlatformService {
     await _channel.invokeMethod<void>('requestStorageAccess');
   }
 
+  static Future<void> acquireMulticastLock() async {
+    if (!Platform.isAndroid) return;
+    await _channel.invokeMethod<void>('acquireMulticastLock');
+  }
+
   static Future<String> openFile(String path) async {
     if (!Platform.isAndroid) return 'unsupported';
     return await _channel.invokeMethod<String>('openFile', {'path': path}) ??
