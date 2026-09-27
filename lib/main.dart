@@ -978,12 +978,14 @@ class _TransferRow extends StatelessWidget {
         : Icons.south_west_rounded;
     final status = switch (task.status) {
       TransferStatus.waiting => '等待对方确认',
-      TransferStatus.transferring => _transferProgressText(task),
+      TransferStatus.transferring => '传输中',
       TransferStatus.finalizing => '文件已发送，等待对方确认完成',
       TransferStatus.completed => '传输完成',
       TransferStatus.failed => task.error ?? '传输失败',
       TransferStatus.cancelled => task.error ?? '已取消',
     };
+    final peerText =
+        '${task.direction == TransferDirection.send ? '发送到' : '来自'} ${task.peerName}';
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1013,8 +1015,8 @@ class _TransferRow extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                '${task.direction == TransferDirection.send ? '发送到' : '来自'} ${task.peerName} · $status',
-                maxLines: 1,
+                '$peerText · $status',
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
@@ -1031,6 +1033,25 @@ class _TransferRow extends StatelessWidget {
                       : task.progress,
                   minHeight: 5,
                   borderRadius: BorderRadius.circular(5),
+                ),
+              ],
+              if (task.status == TransferStatus.transferring ||
+                  task.status == TransferStatus.finalizing) ...[
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: _transferProgressItems(task)
+                      .map(
+                        (text) => Text(
+                          text,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF667085),
+                          ),
+                        ),
+                      )
+                      .toList(),
                 ),
               ],
               if (task.status == TransferStatus.completed &&
@@ -1079,7 +1100,7 @@ class _TransferRow extends StatelessWidget {
     );
   }
 
-  String _transferProgressText(TransferTask task) {
+  List<String> _transferProgressItems(TransferTask task) {
     final parts = <String>[
       '${formatBytes(task.transferredBytes)} / ${formatBytes(task.totalBytes)}',
     ];
@@ -1090,7 +1111,7 @@ class _TransferRow extends StatelessWidget {
     if (remaining != null) {
       parts.add('剩余约 ${formatDuration(remaining)}');
     }
-    return parts.join(' · ');
+    return parts;
   }
 }
 
