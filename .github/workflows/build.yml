@@ -1,0 +1,113 @@
+name: 构建发布包
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.44.4
+
+jobs:
+  quality:
+    name: 代码检查与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android APK
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: 整理安装包
+        run: cp build/app/outputs/flutter-apk/app-release.apk '局域快传-android.apk'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 局域快传-android
+          path: 局域快传-android.apk
+          retention-days: 14
+
+  windows:
+    name: Windows x64
+    needs: quality
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: 压缩发布目录
+        shell: pwsh
+        run: Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath '局域快传-windows-x64.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 局域快传-windows-x64
+          path: 局域快传-windows-x64.zip
+          retention-days: 14
+
+  macos:
+    name: macOS
+    needs: quality
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: 压缩应用
+        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/lanlink.app '局域快传-macos.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 局域快传-macos
+          path: 局域快传-macos.zip
+          retention-days: 14
+
+  release:
+    name: 发布 GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*
