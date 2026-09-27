@@ -37,7 +37,6 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{cmd}"; Parameters: "/C netsh advfirewall firewall delete rule name=""局域快传 UDP 发现"" >nul 2>&1 & netsh advfirewall firewall add rule name=""局域快传 UDP 发现"" dir=in action=allow protocol=UDP localport=45678 program=""{app}\{#MyAppExeName}"""; Flags: runhidden
 Filename: "{cmd}"; Parameters: "/C netsh advfirewall firewall delete rule name=""局域快传 TCP 传输"" >nul 2>&1 & netsh advfirewall firewall add rule name=""局域快传 TCP 传输"" dir=in action=allow protocol=TCP localport=45679 program=""{app}\{#MyAppExeName}"""; Flags: runhidden
-Filename: "{app}\{#MyAppExeName}"; Description: "运行 {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C netsh advfirewall firewall delete rule name=""局域快传 UDP 发现"""; Flags: runhidden; RunOnceId: "RemoveUdpFirewallRule"
