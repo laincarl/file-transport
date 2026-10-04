@@ -13,19 +13,20 @@ const base = `https://gitee.com/api/v5/repos/${repository}`;
 
 async function api(path, method = 'GET', data, allow404 = false) {
   const url = new URL(`${base}${path}`);
+  // multipart 上传在读取大文件之前完成令牌鉴权，避免等待表单末尾的 token 字段。
+  url.searchParams.set('access_token', token);
   let body;
-  if (method === 'GET') url.searchParams.set('access_token', token);
-  else if (data instanceof FormData) {
-    data.set('access_token', token);
+  if (data instanceof FormData) {
     body = data;
-  } else {
-    body = new URLSearchParams({ ...data, access_token: token });
+  } else if (method !== 'GET') {
+    body = new URLSearchParams(data);
   }
   let response;
   try {
-    response = await fetch(url, { method, body, redirect: 'error', signal: AbortSignal.timeout(300_000) });
-  } catch {
-    throw new Error(`Gitee ${method} ${path} 网络请求失败或超时`);
+    response = await fetch(url, { method, body, headers: { Accept: 'application/json' },
+      redirect: 'error', signal: AbortSignal.timeout(300_000) });
+  } catch (error) {
+    throw new Error(`Gitee ${method} ${path} 网络请求失败或超时（${error.cause?.code || error.name}）`);
   }
   if (allow404 && response.status === 404) return null;
   // 不打印响应体或请求 URL，避免令牌进入日志。
@@ -98,7 +99,14 @@ if (process.argv[2] === 'code') {
     if ((await stat(path)).size > 100 * 1024 * 1024) throw new Error(`${name} 超过 Gitee 附件上限`);
     const form = new FormData();
     form.set('file', await openAsBlob(path), name);
-    await api(`/releases/${release.id}/attach_files`, 'POST', form);
+    console.log(`正在上传 ${name}（${(await stat(path)).size} 字节）`);
+    try {
+      await api(`/releases/${release.id}/attach_files`, 'POST', form);
+    } catch (error) {
+      // 超时的返回结果不确定，先核对服务端，再决定是否重复提交。
+      const refreshed = await api(`/releases/tags/${encodeURIComponent(tag)}`);
+      if (!(refreshed.assets || []).some(asset => asset.name === name)) throw error;
+    }
     console.log(`已同步 ${name}`);
   }
   await api(`/releases/${release.id}`, 'PATCH', {
