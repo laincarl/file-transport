@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +11,7 @@ import { join } from 'node:path';
 test('发行版上传：校验原包、改写镜像、清单最后、重跑不重复上传', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lanlink-gitee-test-'));
   const originalFetch = globalThis.fetch;
+  const originalSpawn = childProcess.spawnSync;
   const originalArgv = process.argv;
   const originalEnv = { ...process.env };
   const names = ['lanlink-windows-x64-setup.exe', 'lanlink-android.apk', 'lanlink-macos.dmg'];
@@ -27,6 +31,16 @@ test('发行版上传：校验原包、改写镜像、清单最后、重跑不�
   let published = false;
   let exists = false;
   let mirrored;
+  childProcess.spawnSync = (command, args, options) => {
+    assert.equal(command, 'curl');
+    assert.deepEqual(args, ['--config', '-']);
+    const form = JSON.parse(options.input.split('\n').find(line => line.startsWith('form = ')).slice(7));
+    const [path, name] = form.slice(6).split(';filename=');
+    uploads.push(name);
+    if (name === 'latest.json') mirrored = JSON.parse(readFileSync(path, 'utf8'));
+    return { status: 0, stdout: '{"id":42}\n200 1000 1.0' };
+  };
+  syncBuiltinESMExports();
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url).pathname;
     if (path.endsWith('/latest.json')) return Response.json(mirrored);
@@ -71,6 +85,8 @@ test('发行版上传：校验原包、改写镜像、清单最后、重跑不�
     await assert.rejects(import('./sync-gitee.mjs?test=corrupt'), /与 GitHub 更新清单不一致/);
   } finally {
     globalThis.fetch = originalFetch;
+    childProcess.spawnSync = originalSpawn;
+    syncBuiltinESMExports();
     process.argv = originalArgv;
     for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
     Object.assign(process.env, originalEnv);

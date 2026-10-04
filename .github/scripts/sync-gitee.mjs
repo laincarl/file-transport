@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, openAsBlob } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -10,6 +10,27 @@ if (!token) throw new Error('请在 GitHub Actions Secrets 中配置 GITEE_TOKEN
 if (!/^[\w-]+\/[\w.-]+$/.test(repository)) throw new Error('Gitee 仓库格式不正确');
 const [owner] = repository.split('/');
 const base = `https://gitee.com/api/v5/repos/${repository}`;
+
+function uploadAttachment(releaseId, path, name) {
+  const url = new URL(`${base}/releases/${releaseId}/attach_files`);
+  url.searchParams.set('access_token', token);
+  // curl 的凭证配置仅通过 stdin 传递，不进入命令参数、文件或日志。
+  const config = [
+    `url = ${JSON.stringify(url.toString())}`,
+    `form = ${JSON.stringify(`file=@${path};filename=${name}`)}`,
+    'header = "Accept: application/json"',
+    'silent', 'show-error', 'http1.1', 'connect-timeout = 20', 'max-time = 240',
+    'write-out = "\\n%{http_code} %{size_upload} %{time_total}"',
+  ].join('\n');
+  const result = spawnSync('curl', ['--config', '-'], {
+    input: config, encoding: 'utf8', timeout: 270_000, maxBuffer: 1024 * 1024,
+  });
+  const metrics = (result.stdout || '').trim().split('\n').at(-1).split(' ');
+  const [status, uploaded, seconds] = metrics;
+  if (result.status !== 0 || !/^2\d\d$/.test(status)) {
+    throw new Error(`附件上传失败：HTTP ${status || '未知'}，curl ${result.status ?? '超时'}，已发送 ${uploaded || 0} 字节，耗时 ${seconds || 0} 秒`);
+  }
+}
 
 async function api(path, method = 'GET', data, allow404 = false) {
   const url = new URL(`${base}${path}`);
@@ -97,11 +118,9 @@ if (process.argv[2] === 'code') {
   for (const [name, path] of files) {
     if (existing.has(name)) continue;
     if ((await stat(path)).size > 100 * 1024 * 1024) throw new Error(`${name} 超过 Gitee 附件上限`);
-    const form = new FormData();
-    form.set('file', await openAsBlob(path), name);
     console.log(`正在上传 ${name}（${(await stat(path)).size} 字节）`);
     try {
-      await api(`/releases/${release.id}/attach_files`, 'POST', form);
+      uploadAttachment(release.id, path, name);
     } catch (error) {
       // 超时的返回结果不确定，先核对服务端，再决定是否重复提交。
       const refreshed = await api(`/releases/tags/${encodeURIComponent(tag)}`);
