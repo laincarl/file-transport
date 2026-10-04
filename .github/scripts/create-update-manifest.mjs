@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, writeFileSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { copyFileSync, createReadStream, writeFileSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const repository = process.env.GITHUB_REPOSITORY;
@@ -23,9 +23,24 @@ async function sha256(path) {
   return hash.digest('hex');
 }
 
+async function findAsset(directory, filename) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isFile() && entry.name === filename) return path;
+    if (entry.isDirectory()) {
+      const nested = await findAsset(path, filename);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 const assets = {};
 for (const [platform, name] of Object.entries(filenames)) {
+  const sourcePath = await findAsset(releaseDirectory, name);
+  if (!sourcePath) throw new Error(`没有找到发布文件：${name}`);
   const path = join(releaseDirectory, name);
+  if (sourcePath !== path) copyFileSync(sourcePath, path);
   const fileStat = await stat(path);
   assets[platform] = {
     name,
