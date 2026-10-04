@@ -360,6 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _showSettings() async {
     final nameController = TextEditingController(text: service.deviceName);
+    var autoReceive = service.autoReceive;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -381,6 +382,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   decoration: const InputDecoration(labelText: '本机名称'),
                 ),
                 const SizedBox(height: 18),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('自动接收文件'),
+                  subtitle: const Text('开启后无需确认，直接保存到接收目录'),
+                  value: autoReceive,
+                  onChanged: (value) =>
+                      setDialogState(() => autoReceive = value),
+                ),
+                const SizedBox(height: 12),
                 Text('接收目录', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 8),
                 Container(
@@ -433,6 +443,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             FilledButton(
               onPressed: () async {
+                await service.setAutoReceive(autoReceive);
                 await service.renameDevice(nameController.text);
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },

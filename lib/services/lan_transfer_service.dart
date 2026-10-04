@@ -35,6 +35,7 @@ class LanTransferService extends ChangeNotifier {
   String? localAddress;
   String? defaultDestination;
   String? startupError;
+  bool autoReceive = true;
   OfferHandler? onIncomingOffer;
 
   List<PeerDevice> get peers {
@@ -48,6 +49,7 @@ class LanTransferService extends ChangeNotifier {
   Future<void> start() async {
     try {
       _preferences = await SharedPreferences.getInstance();
+      autoReceive = _preferences!.getBool('auto_receive') ?? true;
       deviceId = _preferences!.getString('device_id') ?? _newId();
       await _preferences!.setString('device_id', deviceId);
       final savedDeviceName = _preferences!.getString('device_name')?.trim();
@@ -193,6 +195,12 @@ class LanTransferService extends ChangeNotifier {
   Future<void> setDefaultDestination(String path) async {
     defaultDestination = path;
     await _preferences?.setString('destination', path);
+    notifyListeners();
+  }
+
+  Future<void> setAutoReceive(bool enabled) async {
+    autoReceive = enabled;
+    await _preferences?.setBool('auto_receive', enabled);
     notifyListeners();
   }
 
@@ -527,7 +535,9 @@ class LanTransferService extends ChangeNotifier {
         totalBytes: packet['totalBytes'] as int? ?? 0,
       );
       final handler = onIncomingOffer;
-      final decision = handler == null
+      final decision = autoReceive
+          ? IncomingDecision(accepted: true, destination: defaultDestination)
+          : handler == null
           ? const IncomingDecision(accepted: false)
           : await handler(offer);
       await _writePacket(socket, {'accepted': decision.accepted});
