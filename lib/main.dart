@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -7,6 +8,7 @@ import 'package:open_filex/open_filex.dart';
 
 import 'models.dart';
 import 'services/android_platform_service.dart';
+import 'services/app_update_service.dart';
 import 'services/lan_transfer_service.dart';
 import 'utils.dart';
 
@@ -57,19 +59,27 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final LanTransferService service;
+  late final AppUpdateService updateService;
   PeerDevice? selectedPeer;
   bool dragging = false;
   bool isTelevision = false;
+  bool checkingForUpdate = false;
+  String appVersion = '';
 
   @override
   void initState() {
     super.initState();
     service = LanTransferService();
+    updateService = AppUpdateService();
     service.onIncomingOffer = _confirmIncoming;
     _initialize();
   }
 
   Future<void> _initialize() async {
+    try {
+      final version = await updateService.currentVersion();
+      if (mounted) setState(() => appVersion = version);
+    } catch (_) {}
     if (Platform.isAndroid) {
       try {
         final television = await AndroidPlatformService.isTelevision();
@@ -77,34 +87,37 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {}
     }
     await service.start();
-    if (!mounted || !Platform.isAndroid) return;
-    if (await AndroidPlatformService.hasStorageAccess()) return;
     if (!mounted) return;
-    final shouldOpenSettings =
-        await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.folder_shared_outlined, size: 34),
-            title: const Text('允许访问下载目录'),
-            content: const Text('局域快传会把接收的文件保存到系统“下载/局域快传”目录，需要授予文件访问权限。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('稍后'),
-              ),
-              FilledButton(
-                autofocus: isTelevision,
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('去授权'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (shouldOpenSettings) {
-      await AndroidPlatformService.requestStorageAccess();
+    if (Platform.isAndroid &&
+        !await AndroidPlatformService.hasStorageAccess() &&
+        mounted) {
+      final shouldOpenSettings =
+          await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              icon: const Icon(Icons.folder_shared_outlined, size: 34),
+              title: const Text('允许访问下载目录'),
+              content: const Text('局域快传会把接收的文件保存到系统“下载/局域快传”目录，需要授予文件访问权限。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('稍后'),
+                ),
+                FilledButton(
+                  autofocus: isTelevision,
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('去授权'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (shouldOpenSettings) {
+        await AndroidPlatformService.requestStorageAccess();
+      }
     }
+    if (mounted) unawaited(_checkForUpdate(automatic: true));
   }
 
   @override
@@ -272,6 +285,178 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _checkForUpdate({required bool automatic}) async {
+    if (checkingForUpdate) return;
+    if (automatic && !await updateService.shouldCheckAutomatically()) return;
+    if (mounted) setState(() => checkingForUpdate = true);
+    try {
+      final update = await updateService.checkForUpdate();
+      if (automatic) await updateService.markAutomaticCheckCompleted();
+      if (!mounted) return;
+      if (update == null) {
+        if (!automatic) _message('当前已是最新版本');
+        return;
+      }
+      await _showUpdateDialog(update);
+    } on AppUpdateException catch (error) {
+      if (!automatic) _message(error.message);
+    } finally {
+      if (mounted) setState(() => checkingForUpdate = false);
+    }
+  }
+
+  Future<void> _showUpdateDialog(AppUpdateInfo update) async {
+    final shouldInstall =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.system_update_rounded, size: 34),
+            title: Text('发现新版本 ${update.version}'),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '当前版本 ${update.currentVersion} · ${formatBytes(update.asset.size)}',
+                    style: const TextStyle(color: Color(0xFF737988)),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('更新说明', style: Theme.of(context).textTheme.labelLarge),
+                  const SizedBox(height: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240),
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        update.notes.isEmpty
+                            ? '本次版本包含功能改进和问题修复。'
+                            : update.notes,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('稍后'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('下载更新'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (shouldInstall && mounted) await _downloadAndInstall(update);
+  }
+
+  Future<void> _downloadAndInstall(AppUpdateInfo update) async {
+    final progress = ValueNotifier<(int, int)>((0, update.asset.size));
+    final dialogReady = Completer<void>();
+    BuildContext? progressContext;
+    final dialog = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        progressContext = context;
+        if (!dialogReady.isCompleted) dialogReady.complete();
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            title: const Text('正在下载更新'),
+            content: SizedBox(
+              width: 400,
+              child: ValueListenableBuilder<(int, int)>(
+                valueListenable: progress,
+                builder: (context, value, _) {
+                  final received = value.$1;
+                  final total = value.$2;
+                  final fraction = total > 0 ? received / total : null;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LinearProgressIndicator(value: fraction?.clamp(0, 1)),
+                      const SizedBox(height: 12),
+                      Text(
+                        total > 0
+                            ? '${formatBytes(received)} / ${formatBytes(total)}'
+                            : '已下载 ${formatBytes(received)}',
+                        style: const TextStyle(color: Color(0xFF737988)),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('下载完成后会校验文件完整性'),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    await dialogReady.future;
+    try {
+      final installer = await updateService.downloadUpdate(
+        update,
+        onProgress: (received, total) => progress.value = (received, total),
+      );
+      if (progressContext != null && progressContext!.mounted) {
+        Navigator.pop(progressContext!);
+      }
+      await dialog;
+      if (!mounted) return;
+      await _launchInstaller(installer);
+    } on AppUpdateException catch (error) {
+      if (progressContext != null && progressContext!.mounted) {
+        Navigator.pop(progressContext!);
+      }
+      await dialog;
+      _message(error.message);
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  Future<void> _launchInstaller(File installer) async {
+    var result = await updateService.launchInstaller(installer);
+    if (result == UpdateLaunchResult.installPermissionRequested && mounted) {
+      final retry =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('允许安装更新'),
+              content: const Text('请在系统设置中允许局域快传安装未知应用，返回后点击“继续安装”。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('稍后'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('继续安装'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!retry) return;
+      result = await updateService.launchInstaller(installer);
+    }
+    if (result == UpdateLaunchResult.installPermissionRequested) {
+      _message('尚未获得安装权限，请授权后重试');
+    } else if (Platform.isWindows) {
+      _message('安装程序已打开，请按提示完成更新');
+    } else if (Platform.isMacOS) {
+      _message('磁盘映像已打开，请将新版应用拖入“应用程序”');
+    }
+  }
+
   Future<void> _openReceivedFile(TransferTask task) async {
     if (task.receivedPaths.isEmpty) {
       _message('文件不存在或尚未接收完成');
@@ -361,6 +546,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showSettings() async {
     final nameController = TextEditingController(text: service.deviceName);
     var autoReceive = service.autoReceive;
+    var checkingUpdate = false;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -432,6 +618,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Text(
                   '之后接收的文件将保存到此目录',
                   style: TextStyle(fontSize: 12, color: Color(0xFF7B8190)),
+                ),
+                const SizedBox(height: 18),
+                const Divider(),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 21),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '局域快传',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            appVersion.isEmpty ? '正在读取版本' : '版本 $appVersion',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF7B8190),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: checkingUpdate
+                          ? null
+                          : () async {
+                              setDialogState(() => checkingUpdate = true);
+                              await _checkForUpdate(automatic: false);
+                              if (dialogContext.mounted) {
+                                setDialogState(() => checkingUpdate = false);
+                              }
+                            },
+                      icon: checkingUpdate
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.system_update_alt_rounded),
+                      label: Text(checkingUpdate ? '检查中' : '检查更新'),
+                    ),
+                  ],
                 ),
               ],
             ),

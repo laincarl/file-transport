@@ -1,5 +1,7 @@
 #define MyAppName "局域快传"
-#define MyAppVersion "1.0.1"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1.0"
+#endif
 #define MyAppPublisher "laincarl"
 #define MyAppExeName "lanlink.exe"
 

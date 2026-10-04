@@ -26,6 +26,15 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: 校验发布标签与应用版本
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          APP_VERSION=$(sed -nE 's/^version: ([^+]+).*/\1/p' pubspec.yaml)
+          test "v${APP_VERSION}" = "${GITHUB_REF_NAME}" || {
+            echo "标签 ${GITHUB_REF_NAME} 与 pubspec 版本 ${APP_VERSION} 不一致"
+            exit 1
+          }
       - run: flutter analyze
       - run: flutter test
 
@@ -85,7 +94,10 @@ jobs:
         run: choco install innosetup --no-progress -y
       - name: 生成 Windows 安装程序
         shell: pwsh
-        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/windows/lanlink.iss'
+        run: |
+          $match = Select-String -Path pubspec.yaml -Pattern '^version:\s*([^+]+)'
+          $version = $match.Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" installer/windows/lanlink.iss
       - uses: actions/upload-artifact@v4
         with:
           name: 局域快传-windows-x64

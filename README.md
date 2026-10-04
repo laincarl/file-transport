@@ -18,6 +18,7 @@
 - 接收完成后可直接打开文件，或在资源管理器/Finder 中显示
 - Android 默认保存到公共 `下载/局域快传` 目录，支持调用系统安装器打开 APK
 - Android TV 支持电视启动器入口、遥控器方向键与确认键操作；电视端用于接收和安装 APK，同一安装包可同时安装到手机和电视
+- 启动后每天自动检查一次 GitHub Release，设置页也可手动检查；支持下载进度、SHA-256 校验并调用系统安装流程
 - 桌面窗口启动时自动在当前显示器居中
 
 ## 运行
@@ -61,6 +62,8 @@ flutter run -d macos
 - `dist/局域快传-android.apk`
 
 GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。macOS 使用 DMG 磁盘映像，避免 Actions Artifact 出现双层 ZIP。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个平台的安装包。
+
+应用内更新读取本仓库公开的 `releases/latest`。发布标签必须与 `pubspec.yaml` 中的版本一致，例如应用版本为 `1.1.0+2` 时使用标签 `v1.1.0`；流水线会自动校验两者并把相同版本写入 Windows 安装器。
 
 Android 流水线使用保存在 GitHub Secrets 中的固定 Release 密钥签名，并以 Actions 运行编号生成递增的 `versionCode`，因此后续流水线 APK 可以直接覆盖升级。首次从旧的 Debug 签名版切换到 Release 签名版时，需要先卸载旧版本。请勿替换或遗失原始签名密钥，否则无法继续覆盖升级已有安装。
 

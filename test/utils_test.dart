@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lanlink/models.dart';
+import 'package:lanlink/services/app_update_service.dart';
 import 'package:lanlink/utils.dart';
 
 void main() {
@@ -52,5 +53,21 @@ void main() {
     expect(task.transferredBytes, 1536);
     expect(task.bytesPerSecond, 2048);
     expect(task.progress, closeTo(0.375, 0.0001));
+  });
+
+  test('应用版本比较支持 v 前缀、构建号和不同段数', () {
+    expect(
+      AppUpdateService.compareVersions('v1.1.0', '1.0.9+12'),
+      greaterThan(0),
+    );
+    expect(AppUpdateService.compareVersions('1.1', '1.1.0'), 0);
+    expect(AppUpdateService.compareVersions('1.0.9', '1.1.0'), lessThan(0));
+  });
+
+  test('更新文件名会移除路径和非法字符', () {
+    expect(
+      AppUpdateService.safeAssetName('../局域快传:setup?.exe'),
+      '__局域快传_setup_.exe',
+    );
   });
 }
