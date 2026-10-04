@@ -34,6 +34,10 @@ async function api(path, method = 'GET', data, allow404 = false) {
 }
 
 if (process.argv[2] === 'code') {
+  // checkout 在 tag 事件中可能把附注标签改写为指向提交的轻量标签。
+  // 从主维护端恢复原始对象后再同步；这里只更新本地引用，不强推 Gitee。
+  execFileSync('git', ['fetch', 'origin',
+    '+refs/heads/main:refs/remotes/origin/main', '+refs/tags/*:refs/tags/*'], { stdio: 'pipe' });
   const authorization = Buffer.from(`${process.env.GITEE_USERNAME || owner}:${token}`).toString('base64');
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0',
     GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://gitee.com/.extraheader',
