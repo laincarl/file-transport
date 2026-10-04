@@ -143,4 +143,9 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: release/*
+          files: |
+            release/lanlink-android.apk
+            release/lanlink-windows-x64.zip
+            release/lanlink-windows-x64-setup.exe
+            release/lanlink-macos.dmg
+            release/latest.json

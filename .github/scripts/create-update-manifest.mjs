@@ -11,11 +11,22 @@ if (!repository || !tag?.startsWith('v')) {
 
 const version = tag.slice(1);
 const releaseDirectory = 'release';
-const filenames = {
-  windows: '局域快传-windows-x64-setup.exe',
-  android: '局域快传-android.apk',
-  macos: '局域快传-macos.dmg',
+const files = {
+  windows: {
+    source: '局域快传-windows-x64-setup.exe',
+    release: 'lanlink-windows-x64-setup.exe',
+  },
+  android: {
+    source: '局域快传-android.apk',
+    release: 'lanlink-android.apk',
+  },
+  macos: {
+    source: '局域快传-macos.dmg',
+    release: 'lanlink-macos.dmg',
+  },
 };
+const portableSource = '局域快传-windows-x64.zip';
+const portableRelease = 'lanlink-windows-x64.zip';
 
 async function sha256(path) {
   const hash = createHash('sha256');
@@ -36,19 +47,23 @@ async function findAsset(directory, filename) {
 }
 
 const assets = {};
-for (const [platform, name] of Object.entries(filenames)) {
-  const sourcePath = await findAsset(releaseDirectory, name);
-  if (!sourcePath) throw new Error(`没有找到发布文件：${name}`);
-  const path = join(releaseDirectory, name);
+for (const [platform, file] of Object.entries(files)) {
+  const sourcePath = await findAsset(releaseDirectory, file.source);
+  if (!sourcePath) throw new Error(`没有找到发布文件：${file.source}`);
+  const path = join(releaseDirectory, file.release);
   if (sourcePath !== path) copyFileSync(sourcePath, path);
   const fileStat = await stat(path);
   assets[platform] = {
-    name,
-    url: `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(name)}`,
+    name: file.release,
+    url: `https://github.com/${repository}/releases/download/${tag}/${file.release}`,
     size: fileStat.size,
     sha256: await sha256(path),
   };
 }
+
+const portablePath = await findAsset(releaseDirectory, portableSource);
+if (!portablePath) throw new Error(`没有找到发布文件：${portableSource}`);
+copyFileSync(portablePath, join(releaseDirectory, portableRelease));
 
 const manifest = {
   version,
