@@ -59,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final LanTransferService service;
   PeerDevice? selectedPeer;
   bool dragging = false;
+  bool isTelevision = false;
 
   @override
   void initState() {
@@ -69,6 +70,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initialize() async {
+    if (Platform.isAndroid) {
+      try {
+        final television = await AndroidPlatformService.isTelevision();
+        if (mounted) setState(() => isTelevision = television);
+      } catch (_) {}
+    }
     await service.start();
     if (!mounted || !Platform.isAndroid) return;
     if (await AndroidPlatformService.hasStorageAccess()) return;
@@ -87,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const Text('稍后'),
               ),
               FilledButton(
+                autofocus: isTelevision,
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('去授权'),
               ),
@@ -139,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const Text('拒绝'),
               ),
               FilledButton(
+                autofocus: isTelevision,
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('接收'),
               ),
@@ -273,7 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         final result = await AndroidPlatformService.openFile(path);
         if (result == 'install_permission_requested') {
-          _message('请允许安装未知应用，返回后再次点击“打开文件”');
+          _message('请允许安装未知应用，返回后再次点击“安装 APK”');
         } else if (result != 'done') {
           _message('无法打开此文件');
         }
@@ -461,6 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       deviceName: service.deviceName,
                       peerCount: service.peers.length,
                       onSettings: _showSettings,
+                      autofocusSettings: isTelevision,
                     ),
                     Expanded(
                       child: LayoutBuilder(
@@ -469,6 +479,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           final devices = _DevicesPanel(
                             peers: service.peers,
                             selected: selectedPeer,
+                            television: isTelevision,
+                            localAddress: service.localAddress,
                             onSelected: (peer) =>
                                 setState(() => selectedPeer = peer),
                             onRefresh: () =>
@@ -481,11 +493,13 @@ class _HomeScreenState extends State<HomeScreen> {
                                 peer: selectedPeer,
                                 onPickFiles: _pickFiles,
                                 onPickFolder: _pickFolder,
+                                television: isTelevision,
                               ),
                               const SizedBox(height: 18),
                               Expanded(
                                 child: _TransfersPanel(
                                   tasks: service.tasks,
+                                  television: isTelevision,
                                   onCancel: service.cancelTask,
                                   onClear: service.clearFinishedTasks,
                                   onOpen: _openReceivedFile,
@@ -592,10 +606,12 @@ class _Header extends StatelessWidget {
     required this.deviceName,
     required this.peerCount,
     required this.onSettings,
+    required this.autofocusSettings,
   });
   final String deviceName;
   final int peerCount;
   final VoidCallback onSettings;
+  final bool autofocusSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -690,6 +706,7 @@ class _Header extends StatelessWidget {
               const SizedBox(width: 4),
               IconButton(
                 onPressed: onSettings,
+                autofocus: autofocusSettings,
                 tooltip: '设置',
                 icon: const Icon(Icons.settings_outlined),
               ),
@@ -705,12 +722,16 @@ class _DevicesPanel extends StatelessWidget {
   const _DevicesPanel({
     required this.peers,
     required this.selected,
+    required this.television,
+    required this.localAddress,
     required this.onSelected,
     required this.onRefresh,
     required this.onManualConnect,
   });
   final List<PeerDevice> peers;
   final PeerDevice? selected;
+  final bool television;
+  final String? localAddress;
   final ValueChanged<PeerDevice> onSelected;
   final VoidCallback onRefresh;
   final VoidCallback onManualConnect;
@@ -727,7 +748,7 @@ class _DevicesPanel extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  '附近设备',
+                  television ? '本机接收信息' : '附近设备',
                   style: Theme.of(
                     context,
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -738,17 +759,20 @@ class _DevicesPanel extends StatelessWidget {
                   tooltip: '刷新',
                   icon: const Icon(Icons.refresh_rounded),
                 ),
-                TextButton.icon(
-                  onPressed: onManualConnect,
-                  icon: const Icon(Icons.add_link_rounded),
-                  label: const Text('手动连接'),
-                ),
+                if (!television)
+                  TextButton.icon(
+                    onPressed: onManualConnect,
+                    icon: const Icon(Icons.add_link_rounded),
+                    label: const Text('手动连接'),
+                  ),
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              '选择一台设备，然后发送文件或文件夹',
-              style: TextStyle(color: Color(0xFF737988)),
+            Text(
+              television
+                  ? '局域网 IP：${localAddress ?? '正在获取'} · 如未自动发现，可在发送端手动连接此 IP'
+                  : '选择一台设备，然后发送文件或文件夹',
+              style: const TextStyle(color: Color(0xFF737988)),
             ),
             const SizedBox(height: 18),
             Expanded(
@@ -874,10 +898,12 @@ class _SendPanel extends StatelessWidget {
     required this.peer,
     required this.onPickFiles,
     required this.onPickFolder,
+    required this.television,
   });
   final PeerDevice? peer;
   final VoidCallback onPickFiles;
   final VoidCallback onPickFolder;
+  final bool television;
 
   @override
   Widget build(BuildContext context) {
@@ -885,48 +911,78 @@ class _SendPanel extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '发送文件',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              peer == null ? '先选择附近设备，也可以直接拖入文件' : '发送到 ${peer!.name}',
-              style: const TextStyle(color: Color(0xFF737988), fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onPickFiles,
-                    icon: const Icon(Icons.insert_drive_file_outlined),
-                    label: const Text('选择文件'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+        child: television
+            ? const Row(
+                children: [
+                  Icon(Icons.tv_rounded, size: 42, color: Color(0xFF4F46E5)),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '电视端等待接收',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          '请在手机或电脑上选择此电视并发送 APK',
+                          style: TextStyle(color: Color(0xFF737988)),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onPickFolder,
-                    icon: const Icon(Icons.folder_outlined),
-                    label: const Text('选择文件夹'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '发送文件',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
-        ),
+                  const SizedBox(height: 6),
+                  Text(
+                    peer == null ? '先选择附近设备，也可以直接拖入文件' : '发送到 ${peer!.name}',
+                    style: const TextStyle(
+                      color: Color(0xFF737988),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: onPickFiles,
+                          icon: const Icon(Icons.insert_drive_file_outlined),
+                          label: const Text('选择文件'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onPickFolder,
+                          icon: const Icon(Icons.folder_outlined),
+                          label: const Text('选择文件夹'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -935,12 +991,14 @@ class _SendPanel extends StatelessWidget {
 class _TransfersPanel extends StatelessWidget {
   const _TransfersPanel({
     required this.tasks,
+    required this.television,
     required this.onCancel,
     required this.onClear,
     required this.onOpen,
     required this.onReveal,
   });
   final List<TransferTask> tasks;
+  final bool television;
   final ValueChanged<String> onCancel;
   final VoidCallback onClear;
   final ValueChanged<TransferTask> onOpen;
@@ -982,6 +1040,7 @@ class _TransfersPanel extends StatelessWidget {
                       separatorBuilder: (_, _) => const Divider(height: 22),
                       itemBuilder: (context, index) => _TransferRow(
                         task: tasks[index],
+                        television: television,
                         onCancel: onCancel,
                         onOpen: onOpen,
                         onReveal: onReveal,
@@ -998,11 +1057,13 @@ class _TransfersPanel extends StatelessWidget {
 class _TransferRow extends StatelessWidget {
   const _TransferRow({
     required this.task,
+    required this.television,
     required this.onCancel,
     required this.onOpen,
     required this.onReveal,
   });
   final TransferTask task;
+  final bool television;
   final ValueChanged<String> onCancel;
   final ValueChanged<TransferTask> onOpen;
   final ValueChanged<TransferTask> onReveal;
@@ -1026,6 +1087,10 @@ class _TransferRow extends StatelessWidget {
     };
     final peerText =
         '${task.direction == TransferDirection.send ? '发送到' : '来自'} ${task.peerName}';
+    final receivedApk =
+        Platform.isAndroid &&
+        task.receivedPaths.isNotEmpty &&
+        task.receivedPaths.first.toLowerCase().endsWith('.apk');
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1104,20 +1169,27 @@ class _TransferRow extends StatelessWidget {
                     if (task.fileCount == 1)
                       TextButton.icon(
                         onPressed: () => onOpen(task),
-                        icon: const Icon(Icons.open_in_new_rounded, size: 17),
-                        label: const Text('打开文件'),
+                        autofocus: receivedApk,
+                        icon: Icon(
+                          receivedApk
+                              ? Icons.install_mobile_rounded
+                              : Icons.open_in_new_rounded,
+                          size: 17,
+                        ),
+                        label: Text(receivedApk ? '安装 APK' : '打开文件'),
                       ),
-                    TextButton.icon(
-                      onPressed: () => onReveal(task),
-                      icon: const Icon(Icons.folder_open_rounded, size: 17),
-                      label: Text(
-                        Platform.isWindows
-                            ? '在资源管理器中显示'
-                            : Platform.isMacOS
-                            ? '在 Finder 中显示'
-                            : '打开所在位置',
+                    if (!television)
+                      TextButton.icon(
+                        onPressed: () => onReveal(task),
+                        icon: const Icon(Icons.folder_open_rounded, size: 17),
+                        label: Text(
+                          Platform.isWindows
+                              ? '在资源管理器中显示'
+                              : Platform.isMacOS
+                              ? '在 Finder 中显示'
+                              : '打开所在位置',
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],

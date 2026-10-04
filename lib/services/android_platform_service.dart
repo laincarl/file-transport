@@ -15,6 +15,11 @@ class AndroidPlatformService {
     return _channel.invokeMethod<String>('getDeviceName');
   }
 
+  static Future<bool> isTelevision() async {
+    if (!Platform.isAndroid) return false;
+    return await _channel.invokeMethod<bool>('isTelevision') ?? false;
+  }
+
   static Future<bool> hasStorageAccess() async {
     if (!Platform.isAndroid) return true;
     return await _channel.invokeMethod<bool>('hasStorageAccess') ?? false;

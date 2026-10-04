@@ -32,6 +32,7 @@ class LanTransferService extends ChangeNotifier {
 
   String deviceId = '';
   String deviceName = '正在初始化';
+  String? localAddress;
   String? defaultDestination;
   String? startupError;
   OfferHandler? onIncomingOffer;
@@ -60,6 +61,7 @@ class LanTransferService extends ChangeNotifier {
       if (shouldGenerateDeviceName) {
         await _preferences!.setString('device_name', deviceName);
       }
+      localAddress = await _findLocalAddress();
       final savedDestination = _preferences!.getString('destination');
       final defaultPath = await _defaultDownloadPath();
       defaultDestination = _isLegacyAndroidDestination(savedDestination)
@@ -123,6 +125,30 @@ class LanTransferService extends ChangeNotifier {
     } catch (_) {}
     final documents = await getApplicationDocumentsDirectory();
     return '${documents.path}${Platform.pathSeparator}局域快传';
+  }
+
+  Future<String?> _findLocalAddress() async {
+    try {
+      final addresses =
+          (await NetworkInterface.list(
+            type: InternetAddressType.IPv4,
+            includeLoopback: false,
+          )).expand((interface) => interface.addresses).where((address) {
+            final value = address.address;
+            return !address.isLoopback && !value.startsWith('169.254.');
+          }).toList();
+      for (final address in addresses) {
+        final value = address.address;
+        if (value.startsWith('10.') ||
+            value.startsWith('192.168.') ||
+            RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').hasMatch(value)) {
+          return value;
+        }
+      }
+      return addresses.isEmpty ? null : addresses.first.address;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String> _defaultDeviceName() async {

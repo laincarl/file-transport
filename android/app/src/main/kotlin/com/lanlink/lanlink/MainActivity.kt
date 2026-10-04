@@ -2,8 +2,10 @@ package com.lanlink.lanlink
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -29,6 +31,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getDeviceName" -> result.success(getDeviceName())
+                    "isTelevision" -> result.success(isTelevision())
                     "getPublicDownloadsPath" -> {
                         val downloads = Environment.getExternalStoragePublicDirectory(
                             Environment.DIRECTORY_DOWNLOADS,
@@ -57,14 +60,22 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    private fun isTelevision(): Boolean {
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager
+        return uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
+
     private fun getDeviceName(): String {
+        val television = isTelevision()
         val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
             Build.FINGERPRINT.startsWith("unknown") ||
             Build.MODEL.contains("google_sdk", ignoreCase = true) ||
+            Build.MODEL.contains("sdk_google", ignoreCase = true) ||
             Build.MODEL.contains("sdk_gphone", ignoreCase = true) ||
             Build.MODEL.contains("Emulator", ignoreCase = true) ||
             Build.MODEL.contains("Android SDK built for", ignoreCase = true)
-        if (isEmulator) return "Android 模拟器"
+        if (isEmulator) return if (television) "Android TV 模拟器" else "Android 模拟器"
 
         val manufacturer = Build.MANUFACTURER.trim()
         val model = Build.MODEL.trim()
