@@ -81,12 +81,13 @@ class AppUpdateService {
       ..connectionTimeout = const Duration(seconds: 12);
     try {
       final request = await client.getUrl(
-        Uri.parse('https://api.github.com/repos/$repository/releases/latest'),
+        Uri.parse(
+          'https://github.com/$repository/releases/latest/download/latest.json',
+        ),
       );
       request.headers
-        ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
-        ..set(HttpHeaders.userAgentHeader, 'LanLink/$current')
-        ..set('X-GitHub-Api-Version', '2026-03-10');
+        ..set(HttpHeaders.acceptHeader, 'application/json')
+        ..set(HttpHeaders.userAgentHeader, 'LanLink/$current');
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );
@@ -99,24 +100,27 @@ class AppUpdateService {
       }
 
       final data = (jsonDecode(body) as Map).cast<String, dynamic>();
-      final latest = normalizeVersion(data['tag_name'] as String? ?? '');
+      final latest = normalizeVersion(data['version'] as String? ?? '');
       if (latest.isEmpty) {
         throw const AppUpdateException('发布版本号格式不正确');
       }
       if (compareVersions(latest, current) <= 0) return null;
 
-      final rawAssets = (data['assets'] as List? ?? const [])
-          .whereType<Map>()
-          .map((asset) => asset.cast<String, dynamic>())
-          .toList();
-      final rawAsset = selectAsset(rawAssets);
-      if (rawAsset == null) {
+      final platformKey = Platform.isAndroid
+          ? 'android'
+          : Platform.isWindows
+          ? 'windows'
+          : Platform.isMacOS
+          ? 'macos'
+          : '';
+      final rawAssets = (data['assets'] as Map? ?? const {})
+          .cast<String, dynamic>();
+      final rawAssetValue = rawAssets[platformKey];
+      if (rawAssetValue is! Map) {
         throw const AppUpdateException('最新版本没有适用于当前平台的安装包');
       }
-      final digest = rawAsset['digest'] as String? ?? '';
-      final hash = digest.startsWith('sha256:')
-          ? digest.substring('sha256:'.length).toLowerCase()
-          : '';
+      final rawAsset = rawAssetValue.cast<String, dynamic>();
+      final hash = (rawAsset['sha256'] as String? ?? '').toLowerCase();
       if (hash.length != 64) {
         throw const AppUpdateException('发布文件缺少 SHA256 校验信息');
       }
@@ -124,11 +128,11 @@ class AppUpdateService {
       return AppUpdateInfo(
         version: latest,
         currentVersion: current,
-        notes: (data['body'] as String? ?? '').trim(),
-        releaseUrl: Uri.parse(data['html_url'] as String),
+        notes: (data['notes'] as String? ?? '').trim(),
+        releaseUrl: Uri.parse(data['releaseUrl'] as String),
         asset: AppUpdateAsset(
           name: rawAsset['name'] as String,
-          downloadUrl: Uri.parse(rawAsset['browser_download_url'] as String),
+          downloadUrl: Uri.parse(rawAsset['url'] as String),
           size: rawAsset['size'] as int? ?? 0,
           sha256: hash,
         ),
@@ -260,21 +264,6 @@ class AppUpdateService {
         .split('.')
         .map((part) => int.tryParse(part) ?? 0)
         .toList();
-  }
-
-  static Map<String, dynamic>? selectAsset(List<Map<String, dynamic>> assets) {
-    final expectedName = Platform.isAndroid
-        ? '局域快传-android.apk'
-        : Platform.isWindows
-        ? '局域快传-windows-x64-setup.exe'
-        : Platform.isMacOS
-        ? '局域快传-macos.dmg'
-        : '';
-    if (expectedName.isEmpty) return null;
-    for (final asset in assets) {
-      if (asset['name'] == expectedName) return asset;
-    }
-    return null;
   }
 
   static String safeAssetName(String value) =>

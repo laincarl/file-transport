@@ -133,10 +133,13 @@ jobs:
     needs: [android, windows, macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      - name: 生成应用内更新清单
+        run: node .github/scripts/create-update-manifest.mjs
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

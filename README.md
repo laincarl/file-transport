@@ -63,7 +63,7 @@ flutter run -d macos
 
 GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。macOS 使用 DMG 磁盘映像，避免 Actions Artifact 出现双层 ZIP。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个平台的安装包。
 
-应用内更新读取本仓库公开的 `releases/latest`。发布标签必须与 `pubspec.yaml` 中的版本一致，例如应用版本为 `1.1.0+2` 时使用标签 `v1.1.0`；流水线会自动校验两者并把相同版本写入 Windows 安装器。
+应用内更新读取最新 Release 附带的 `latest.json`，不消耗 GitHub API 匿名请求配额。发布标签必须与 `pubspec.yaml` 中的版本一致，例如应用版本为 `1.1.1+3` 时使用标签 `v1.1.1`；流水线会自动校验两者、生成三个平台安装包的 SHA-256 更新清单，并把相同版本写入 Windows 安装器。
 
 Android 流水线使用保存在 GitHub Secrets 中的固定 Release 密钥签名，并以 Actions 运行编号生成递增的 `versionCode`，因此后续流水线 APK 可以直接覆盖升级。首次从旧的 Debug 签名版切换到 Release 签名版时，需要先卸载旧版本。请勿替换或遗失原始签名密钥，否则无法继续覆盖升级已有安装。
 
