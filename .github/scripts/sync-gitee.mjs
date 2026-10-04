@@ -123,7 +123,13 @@ if (process.argv[2] === 'code') {
       uploadAttachment(release.id, path, name);
     } catch (error) {
       // 超时的返回结果不确定，先核对服务端，再决定是否重复提交。
-      const refreshed = await api(`/releases/tags/${encodeURIComponent(tag)}`);
+      console.error(error.message);
+      let refreshed;
+      try {
+        refreshed = await api(`/releases/tags/${encodeURIComponent(tag)}`);
+      } catch {
+        throw error; // 保留原始上传诊断，不被后续查询的网络错误掩盖。
+      }
       if (!(refreshed.assets || []).some(asset => asset.name === name)) throw error;
     }
     console.log(`已同步 ${name}`);
