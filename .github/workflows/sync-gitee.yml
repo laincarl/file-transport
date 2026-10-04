@@ -1,0 +1,38 @@
+name: 手动补同步 Gitee
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已发布的 GitHub 标签（例如 v1.1.2）
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: gitee-release
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node .github/scripts/sync-gitee.mjs code
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
+      - run: |
+          gh release download "$RELEASE_TAG" --dir release
+          gh release view "$RELEASE_TAG" --json name,body,tagName,isPrerelease > release/github-release.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      - run: node .github/scripts/sync-gitee.mjs release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}

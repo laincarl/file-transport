@@ -18,7 +18,7 @@
 - 接收完成后可直接打开文件，或在资源管理器/Finder 中显示
 - Android 默认保存到公共 `下载/局域快传` 目录，支持调用系统安装器打开 APK
 - Android TV 支持电视启动器入口、遥控器方向键与确认键操作；电视端用于接收和安装 APK，同一安装包可同时安装到手机和电视
-- 启动后每天自动检查一次 GitHub Release，设置页也可手动检查；支持下载进度、SHA-256 校验并调用系统安装流程
+- 启动后每天自动检查一次更新，优先 Gitee、失败回退 GitHub，设置页也可手动检查；支持下载进度、SHA-256 校验并调用系统安装流程
 - 桌面窗口启动时自动在当前显示器居中
 
 ## 运行
@@ -63,7 +63,24 @@ flutter run -d macos
 
 GitHub Actions 会在推送到 `main` 或手动运行时自动生成 Android、Windows、macOS 三个平台的流水线产物，保留 14 天。macOS 使用 DMG 磁盘映像，避免 Actions Artifact 出现双层 ZIP。推送形如 `v1.0.0` 的标签时，会自动创建 GitHub Release 并附上三个平台的安装包。
 
-应用内更新读取最新 Release 附带的 `latest.json`，不消耗 GitHub API 匿名请求配额。发布标签必须与 `pubspec.yaml` 中的版本一致，例如应用版本为 `1.1.2+4` 时使用标签 `v1.1.2`；流水线会自动校验两者、生成三个平台安装包的 SHA-256 更新清单，并把相同版本写入 Windows 安装器。
+应用内更新先通过 Gitee 最新发行版 API 查找 `latest.json`；网络失败、限流、清单无效或镜像未同步完成时，回退 GitHub 最新 Release 清单。Gitee 没有比本机更新的版本时也会查询 GitHub，避免镜像延迟隐藏新版本；此时 GitHub 不通而 Gitee 有有效清单则显示无更新。下载失败、超时或校验失败时，回退 GitHub 的**同版本、同文件**，仍校验文件大小和 SHA-256，不混用最新版本安装包。发布标签必须与 `pubspec.yaml` 中的版本一致，例如应用版本为 `1.1.2+4` 时使用标签 `v1.1.2`；流水线自动生成 SHA-256 更新清单，并把相同版本写入 Windows 安装器。
+
+## GitHub 主维护、Gitee 镜像
+
+Gitee 镜像地址：https://gitee.com/laincarl/file-transport 。日常只在 GitHub 维护，避免在 Gitee 修改 main 或重写标签。
+
+一次性配置：在 Gitee 创建有 `projects` 权限的专用访问令牌（Gitee 个人令牌可能覆盖账号下多个项目，建议使用只对目标仓库有写权限的专用账号），在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加 `GITEE_TOKEN`。不要提交令牌到仓库，也不要放进客户端。
+
+默认 Git 推送用户名为 `laincarl`；若令牌属于另一个专用账号，额外添加 Actions Variable `GITEE_USERNAME` 为该账号用户名，并确保它有目标仓库的写权限。
+
+- 推送 main / v* 标签：独立任务同步 main 和全部标签，不使用强推、不删除远端引用。
+- GitHub 标签构建发布成功后：下载 GitHub Release 原包，校验清单后上传 Gitee，复制发行版标题、说明和预发布状态；镜像清单链接改为 Gitee。
+- 用户手动发布 GitHub Release 也会触发同步；Actions 自己创建的 Release 不触发 release 事件，因此构建工作流内另有明确的同步任务。
+- 新 Gitee Release 先标记为预发布，安装包全部上传、清单最后上传后才标记为正式发布。失败可以重跑；已存在的附件跳过，相同标签的安装包哈希变更则拒绝覆盖，应使用新版本标签。
+- 手动补同步：Actions → “手动补同步 Gitee” → Run workflow，填写已发布标签（如 `v1.1.2`）。
+- Gitee 无令牌、同步冲突或上传失败会使同步任务失败，但不会撤销已成功发布的 GitHub Release；客户端仍可回退 GitHub。
+
+当前 Gitee 普通仓库单附件限制 100MB、总附件容量 1GB，需要定期管理旧版本容量。自动化不会删除旧发行版。客户端匿名访问 Gitee API，也可能受到服务端限流，故保留 GitHub 备选。配置凭证后请运行一次手动补同步确认真实写入权限；本地模拟测试不等同于真实 CI 验证。
 
 Android 流水线使用保存在 GitHub Secrets 中的固定 Release 密钥签名，并以 Actions 运行编号生成递增的 `versionCode`，因此后续流水线 APK 可以直接覆盖升级。首次从旧的 Debug 签名版切换到 Release 签名版时，需要先卸载旧版本。请勿替换或遗失原始签名密钥，否则无法继续覆盖升级已有安装。
 

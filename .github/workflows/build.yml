@@ -15,6 +15,25 @@ env:
   FLUTTER_VERSION: 3.44.4
 
 jobs:
+  sync-code:
+    name: 同步代码到 Gitee
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gitee-code
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node .github/scripts/sync-gitee.mjs code
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
+
   quality:
     name: 代码检查与测试
     runs-on: ubuntu-latest
@@ -37,6 +56,10 @@ jobs:
           }
       - run: flutter analyze
       - run: flutter test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test .github/scripts/sync-gitee.test.mjs
 
   android:
     name: Android APK
@@ -149,3 +172,27 @@ jobs:
             release/lanlink-windows-x64-setup.exe
             release/lanlink-macos.dmg
             release/latest.json
+
+  sync-release:
+    name: 同步发行版到 Gitee
+    needs: [release, sync-code]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gitee-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 获取 GitHub 正式发行版原包（不重新构建）
+        run: |
+          gh release download "$RELEASE_TAG" --dir release
+          gh release view "$RELEASE_TAG" --json name,body,tagName,isPrerelease > release/github-release.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+      - run: node .github/scripts/sync-gitee.mjs release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
